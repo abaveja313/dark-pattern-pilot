@@ -150,11 +150,17 @@ def call_model(
     prompt: str,
     temperature: float,
     max_tokens: int,
+    max_retries: int = 3,
 ) -> Dict[str, Any]:
     """Send a single API call to a model via OpenRouter.
 
     Returns dict with: reasoning, response, score, parse_method, identified_tactics.
+    Retries on transient errors with exponential backoff.
     """
+    import logging
+    import time
+    logger = logging.getLogger("dark_patterns")
+
     client = OpenAI(
         base_url=OPENROUTER_BASE_URL,
         api_key=os.environ.get("OPENROUTER_API_KEY", ""),
@@ -195,10 +201,28 @@ def call_model(
     if is_reasoning:
         kwargs["extra_body"] = {
             "include_reasoning": True,
-            "reasoning": {"effort": "high"},
+            "reasoning": {"effort": "medium"},
         }
 
-    response = client.chat.completions.create(**kwargs)
+    # Retry with exponential backoff on transient errors
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(**kwargs)
+            break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = 2 ** (attempt + 1)
+                logger.warning(f"API error for {model} (attempt {attempt+1}): {e}. Retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                logger.error(f"API call failed after {max_retries} attempts for {model}: {e}")
+                return {
+                    "reasoning": None,
+                    "response": f"ERROR: {e}",
+                    "score": None,
+                    "parse_method": "none",
+                    "identified_tactics": [],
+                }
     message = response.choices[0].message
     content_text = message.content or ""
 
@@ -402,19 +426,53 @@ def run_experiment(
     # Filter out already-completed trials
     pending = [t for t in plan if t["trial_id"] not in completed_ids]
 
-    # Load existing results if resuming
+    # Load existing results if resuming so incremental saves include them
     results: List[TrialResult] = []
+    if resume_run_id and completed_ids:
+        csv_path = os.path.join(run_dir, "results.csv")
+        if os.path.isfile(csv_path):
+            existing_df = pd.read_csv(csv_path)
+            for _, row in existing_df.iterrows():
+                results.append(TrialResult(
+                    trial_id=row["trial_id"],
+                    model=row["model"],
+                    image=row["image"],
+                    condition=row["condition"],
+                    task_mode=row["task_mode"],
+                    cot_mode=row["cot_mode"],
+                    target_product=row["target_product"],
+                    trial_number=int(row["trial_number"]),
+                    temperature=float(row["temperature"]),
+                    score=int(row["score"]) if pd.notna(row["score"]) else None,
+                    raw_response=row.get("raw_response", ""),
+                    reasoning=row.get("reasoning"),
+                    identified_tactics=row.get("identified_tactics", []),
+                    parse_method=row.get("parse_method", "none"),
+                    anchoring_followup_score=(
+                        int(row["anchoring_followup_score"])
+                        if pd.notna(row.get("anchoring_followup_score"))
+                        else None
+                    ),
+                    timestamp=row.get("timestamp", ""),
+                ))
+
+    import logging
+    logger = logging.getLogger("dark_patterns")
 
     for trial_config in tqdm(pending, desc="Running trials", disable=len(pending) == 0):
-        result = run_single_trial(
-            trial_config=trial_config,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            enable_anchoring=enable_anchoring,
-        )
-        results.append(result)
+        try:
+            result = run_single_trial(
+                trial_config=trial_config,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                enable_anchoring=enable_anchoring,
+            )
+            results.append(result)
 
-        # Incremental save
-        save_results(results, run_dir)
+            # Incremental save
+            save_results(results, run_dir)
+        except Exception as e:
+            logger.error(f"Trial {trial_config['trial_id']} failed: {e}")
+            continue
 
     return results

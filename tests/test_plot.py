@@ -49,45 +49,41 @@ def effect_sizes_df():
         rows.append({
             "model": model,
             "cohens_d": d,
-            "ci_low": d - rng.uniform(0.2, 0.5),
-            "ci_high": d + rng.uniform(0.2, 0.5),
+            "ci_lower": d - rng.uniform(0.2, 0.5),
+            "ci_upper": d + rng.uniform(0.2, 0.5),
         })
     return pd.DataFrame(rows)
 
 
 @pytest.fixture()
 def anchoring_df():
-    """Synthetic anchoring data with pre/post scores."""
+    """Synthetic anchoring data (aggregated per model)."""
     rng = np.random.RandomState(42)
     rows = []
     for model in MODELS:
-        for trial in range(1, 6):
-            pre = int(rng.randint(1, 5))
-            post = min(5, pre + int(rng.randint(0, 2)))
-            rows.append({
-                "model": model,
-                "trial_number": trial,
-                "score": pre,
-                "anchoring_followup_score": post,
-            })
+        rows.append({
+            "model": model,
+            "mean_shift": rng.uniform(-0.5, 2.0),
+            "p_value": rng.uniform(0.01, 0.5),
+            "effect_size": rng.uniform(0.1, 1.0),
+        })
     return pd.DataFrame(rows)
 
 
 @pytest.fixture()
 def awareness_gap_df():
-    """Synthetic awareness/action gap data."""
+    """Synthetic awareness/action gap data (aggregated per model)."""
     rng = np.random.RandomState(42)
     rows = []
     for model in MODELS:
-        for trial in range(1, 11):
-            detected = rng.random() > 0.3
-            score = int(rng.randint(1, 6))
-            rows.append({
-                "model": model,
-                "trial_number": trial,
-                "detected_dark_pattern": detected,
-                "score": score,
-            })
+        n_with = int(rng.randint(10, 20))
+        n_gap = int(rng.randint(2, n_with))
+        rows.append({
+            "model": model,
+            "n_with_tactics": n_with,
+            "n_gap": n_gap,
+            "gap_percentage": n_gap / n_with * 100,
+        })
     return pd.DataFrame(rows)
 
 

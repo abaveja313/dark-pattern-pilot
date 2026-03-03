@@ -262,7 +262,7 @@ def run_judge_pipeline(
             skipped += 1
             continue
 
-        meta = image_lookup.get(trial.image, {})
+        meta = image_lookup.get(os.path.basename(trial.image), {})
         result = call_judge(trial, meta, judge_model)
         if result is not None:
             results.append(result)
@@ -287,10 +287,10 @@ def _load_trials_from_csv(csv_path: str) -> List[TrialResult]:
             # Convert types that CSV flattens to strings
             row["trial_number"] = int(row["trial_number"])
             row["temperature"] = float(row["temperature"])
-            row["score"] = int(row["score"]) if row["score"] not in ("", "None") else None
+            row["score"] = int(float(row["score"])) if row["score"] not in ("", "None", "nan") else None
             row["anchoring_followup_score"] = (
-                int(row["anchoring_followup_score"])
-                if row["anchoring_followup_score"] not in ("", "None")
+                int(float(row["anchoring_followup_score"]))
+                if row.get("anchoring_followup_score") not in ("", "None", "nan", None)
                 else None
             )
             # Parse list field

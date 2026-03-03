@@ -1,0 +1,7 @@
+model,mean_A,mean_B,u_stat,p_value
+anthropic/claude-haiku-4.5,,2.8333333333333335,,
+anthropic/claude-opus-4.6,,2.8333333333333335,,
+google/gemini-2.5-flash,,3.588235294117647,,
+google/gemini-3-pro-preview,,3.1666666666666665,,
+openai/gpt-4o-mini,,4.444444444444445,,
+openai/gpt-5.2,,3.5555555555555554,,

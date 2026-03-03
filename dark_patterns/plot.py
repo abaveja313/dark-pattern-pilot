@@ -343,8 +343,8 @@ def plot_effect_sizes_forest(
         sdf["cohens_d"],
         y_pos,
         xerr=[
-            sdf["cohens_d"] - sdf["ci_low"],
-            sdf["ci_high"] - sdf["cohens_d"],
+            sdf["cohens_d"] - sdf["ci_lower"],
+            sdf["ci_upper"] - sdf["cohens_d"],
         ],
         fmt="o",
         color=_BLUE,
@@ -372,39 +372,27 @@ def plot_anchoring_shift(
     output_dir: str | Path = ".",
     fmt: str = "png",
 ) -> plt.Figure:
-    """Paired dot plot: pre-nudge vs post-nudge scores per model."""
+    """Bar chart of mean anchoring shift per model (aggregated data)."""
     sdf = df.copy()
     sdf["model"] = sdf["model"].apply(short_model_name)
-    models = sorted(sdf["model"].unique())
+    sdf = sdf.sort_values("mean_shift", ascending=True)
 
-    fig, ax = plt.subplots(figsize=(_DOUBLE_COL, _DOUBLE_COL * 0.55))
-    x = np.arange(len(models))
+    fig, ax = plt.subplots(figsize=(_DOUBLE_COL, max(_SINGLE_COL, len(sdf) * 0.6)))
+    y_pos = range(len(sdf))
 
-    for _, row in sdf.iterrows():
-        midx = models.index(row["model"])
-        jitter = np.random.uniform(-0.1, 0.1)
-        ax.plot(
-            [midx + jitter, midx + jitter],
-            [row["score"], row["anchoring_followup_score"]],
-            color="gray",
-            alpha=0.4,
-            linewidth=0.8,
-        )
-        ax.scatter(midx + jitter, row["score"], color=_BLUE, s=20, zorder=3)
-        ax.scatter(midx + jitter, row["anchoring_followup_score"], color=_ORANGE, s=20, zorder=3)
+    colors = [_ORANGE if s > 0 else _BLUE for s in sdf["mean_shift"]]
+    ax.barh(list(y_pos), sdf["mean_shift"], color=colors, edgecolor="black", linewidth=0.5)
+    ax.axvline(0, color="black", linewidth=0.8, linestyle="--")
+    ax.set_yticks(list(y_pos))
+    ax.set_yticklabels(sdf["model"].tolist())
+    ax.set_xlabel("Mean Score Shift (post-nudge \u2212 pre-nudge)")
+    ax.set_title("Anchoring Susceptibility: Score Shift After Social Proof Nudge")
 
-    # Means
-    pre_means = sdf.groupby("model")["score"].mean()
-    post_means = sdf.groupby("model")["anchoring_followup_score"].mean()
-    for i, m in enumerate(models):
-        ax.scatter(i, pre_means[m], color=_BLUE, s=80, marker="D", zorder=5, edgecolors="black", linewidths=0.5)
-        ax.scatter(i, post_means[m], color=_ORANGE, s=80, marker="D", zorder=5, edgecolors="black", linewidths=0.5)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(models, rotation=45, ha="right")
-    ax.set_ylabel("Score (1\u20135)")
-    ax.set_xlabel("Model")
-    ax.set_title("Anchoring Shift: Pre- vs. Post-Nudge Scores")
+    # Annotate with p-values
+    for i, (_, row) in enumerate(sdf.iterrows()):
+        p = row.get("p_value", None)
+        label = f"p={p:.3f}" if p is not None and not pd.isna(p) else ""
+        ax.text(row["mean_shift"] + 0.05, i, label, va="center", fontsize=8)
 
     # Legend
     from matplotlib.lines import Line2D
@@ -427,29 +415,18 @@ def plot_awareness_action_gap(
     output_dir: str | Path = ".",
     fmt: str = "png",
 ) -> plt.Figure:
-    """Grouped bar: % detecting dark pattern vs % recommending despite detecting."""
+    """Grouped bar: awareness-action gap from aggregated analysis data."""
     sdf = df.copy()
     sdf["model"] = sdf["model"].apply(short_model_name)
+    sdf = sdf.sort_values("gap_percentage", ascending=True)
 
-    agg = sdf.groupby("model").agg(
-        detect_pct=("detected_dark_pattern", "mean"),
-        n=("score", "count"),
-    )
-    # % that detected AND still scored >= 3 (recommend)
-    detected_only = sdf[sdf["detected_dark_pattern"]]
-    detected_and_rec = detected_only.groupby("model")["score"].apply(
-        lambda s: (s >= 3).mean()
-    )
-    agg["rec_despite_pct"] = detected_and_rec
-    agg = agg.fillna(0)
-
-    models = agg.index.tolist()
+    models = sdf["model"].tolist()
     x = np.arange(len(models))
     width = 0.35
 
     fig, ax = plt.subplots(figsize=(_DOUBLE_COL, _DOUBLE_COL * 0.55))
-    ax.bar(x - width / 2, agg["detect_pct"] * 100, width, label="Detected dark pattern (%)", color=_BLUE, edgecolor="black", linewidth=0.5)
-    ax.bar(x + width / 2, agg["rec_despite_pct"] * 100, width, label="Recommended despite detecting (%)", color=_RED, edgecolor="black", linewidth=0.5)
+    ax.bar(x - width / 2, (sdf["n_with_tactics"] / sdf["n_with_tactics"].max()) * 100, width, label="Identified tactics (%)", color=_BLUE, edgecolor="black", linewidth=0.5)
+    ax.bar(x + width / 2, sdf["gap_percentage"], width, label="Recommended despite detecting (%)", color=_RED, edgecolor="black", linewidth=0.5)
 
     ax.set_xticks(x)
     ax.set_xticklabels(models, rotation=45, ha="right")
@@ -484,7 +461,13 @@ def plot_judge_quality_heatmap(
 ) -> plt.Figure:
     """Heatmap of judge dimension scores: Model x Dimension."""
     sdf = df.copy()
-    sdf["model"] = sdf["model"].apply(short_model_name)
+    # Extract evaluated model from trial_id if 'model' column missing
+    if "model" not in sdf.columns and "trial_id" in sdf.columns:
+        # trial_id format: provider/model_image_condition_trial_variant_cot
+        # Extract everything before _data/ as the model name
+        sdf["model"] = sdf["trial_id"].str.extract(r'^(.+?)_data/')[0]
+    if "model" in sdf.columns:
+        sdf["model"] = sdf["model"].apply(short_model_name)
 
     dims = [c for c in _JUDGE_DIMS if c in sdf.columns]
     pivot = sdf.groupby("model")[dims].mean()
