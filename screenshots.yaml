@@ -1,0 +1,24 @@
+images:
+  - file: one-tag.png
+    dark_pattern_type: social_proof
+    subtype: activity_badge
+    sp_element_count: 1
+    is_control: false
+    ground_truth_manipulation: true
+    description: "Product page with 1 social proof tag (viewing count)"
+
+  - file: two-tags.png
+    dark_pattern_type: social_proof
+    subtype: activity_badge
+    sp_element_count: 2
+    is_control: false
+    ground_truth_manipulation: true
+    description: "Product page with 2 social proof tags (viewing count + purchase count)"
+
+  - file: three-tags.png
+    dark_pattern_type: social_proof
+    subtype: activity_badge
+    sp_element_count: 3
+    is_control: false
+    ground_truth_manipulation: true
+    description: "Product page with 3 social proof tags (viewing count + purchase count + cart additions)"
